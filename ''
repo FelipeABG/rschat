@@ -19,7 +19,7 @@ pub struct Server {
 enum Message {
     ClientConnected,
     ClientDisconnected,
-    NewMessage(Vec<u8>),
+    NewMessage,
 }
 
 impl Server {
@@ -66,22 +66,13 @@ impl Server {
             .peer_addr()
             .map_err(|err| error!("Failed to get client addres: {err}"))?;
 
-        messages
-            .send(Message::ClientConnected)
-            .map_err(|err| eprintln!("Failed to send message to server thread: {err}"))?;
+        messages.send(Message::ClientConnected);
 
         loop {
             let n = stream.as_ref().read(&mut buffer).map_err(|err| {
                 messages.send(Message::ClientDisconnected);
                 error!("Failed to read from client {client_addr}: {err}")
-            })?;
-
-            messages
-                .send(Message::NewMessage(buffer[0..n].to_vec()))
-                .map_err(|err| {
-                    messages.send(Message::ClientDisconnected);
-                    eprintln!("Failed to send message to server thread: {err}")
-                })?
+            });
         }
     }
 }
