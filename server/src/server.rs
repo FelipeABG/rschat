@@ -80,12 +80,13 @@ impl Server {
     /// to all connected clients except the sender.
     fn server(messages: Receiver<Message>) {
         let mut clients = HashMap::new();
+
         loop {
             match messages.recv() {
                 Ok(msg) => match msg {
                     Message::ClientConnected(stream) => {
                         let client_addr = stream.peer_addr().unwrap();
-                        info!("New client connected: {client_addr}");
+                        info!("Client connected: {client_addr}");
                         clients.insert(client_addr, Arc::clone(&stream));
                     }
                     Message::ClientDisconnected(stream) => {
@@ -95,7 +96,7 @@ impl Server {
                     }
                     Message::NewMessage { author, bytes } => {
                         let author_addr = author.peer_addr().unwrap();
-                        info!("Message received from {author_addr}: {} bytes", bytes.len());
+                        info!("Client {author_addr} sent: {} bytes", bytes.len());
                         for (client, stream) in &clients {
                             if *client != author_addr {
                                 let _ = stream.as_ref().write_all(&bytes).map_err(|err| {
