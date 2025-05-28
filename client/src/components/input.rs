@@ -24,6 +24,19 @@ impl<'a> Input<'a> {
     pub fn register_key(&mut self, key: KeyEvent) {
         self.handler.input(key);
     }
+
+    pub fn get_message(&self) -> Option<String> {
+        let msg = self.handler.lines().join("");
+        if msg.is_empty() {
+            return None;
+        }
+
+        Some(msg)
+    }
+
+    pub fn clear_input(&mut self) {
+        self.handler.delete_line_by_head();
+    }
 }
 
 impl<'a> Widget for &mut Input<'a> {
