@@ -20,7 +20,6 @@ impl Widget for MsgContainer {
     {
         if let Ok(lock) = self.messages.lock() {
             let block = Block::bordered().border_type(BorderType::Rounded);
-
             let msgs: Vec<Paragraph> = lock.iter().map(|msg| msg.as_paragraph()).collect();
 
             let outer_layout = Layout::new(
@@ -36,7 +35,6 @@ impl Widget for MsgContainer {
             for (idx, msg) in msgs.iter().enumerate() {
                 msg.render(inner_layout[idx], buf);
             }
-
             block.render(area, buf);
         }
     }

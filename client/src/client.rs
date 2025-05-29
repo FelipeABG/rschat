@@ -13,8 +13,10 @@ use ratatui::{
     text::Line,
 };
 use std::cell::RefCell;
+use std::io::Read;
 use std::net::TcpStream;
 use std::rc::Rc;
+use std::str::from_utf8;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -57,8 +59,11 @@ impl<'a> Client<'a> {
             stream = TcpStream::connect("127.0.0.1:8080");
             std::thread::sleep(Duration::from_millis(500));
         }
-
         drop(conn_component);
+
+        // thread responsible to handle incoming messages
+        let msgs = Arc::clone(&self.messages);
+        std::thread::spawn(move || Self::handle_messages(msgs, stream.unwrap()));
 
         // main client loop
         loop {
@@ -66,6 +71,24 @@ impl<'a> Client<'a> {
             if self.handle_events()? {
                 break Ok(());
             }
+            std::thread::sleep(Duration::from_millis(16));
+        }
+    }
+
+    fn handle_messages(msgs: Arc<Mutex<Vec<Message>>>, mut stream: TcpStream) {
+        let mut buffer = [0; 1024];
+        // read operations are blocking by default,
+        // which causes the mutex to be blocked in this thread.
+        stream.set_nonblocking(true).unwrap();
+        loop {
+            if let Ok(mut lock) = msgs.lock() {
+                if let Ok(n) = stream.read(&mut buffer) {
+                    if let Ok(msg_str) = from_utf8(&buffer[0..n]) {
+                        lock.push(Message::new(msg_str.to_string()));
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(200));
         }
     }
 
@@ -95,7 +118,7 @@ impl<'a> Client<'a> {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Esc => self.switch_mode(),
-                    KeyCode::Enter => self.update_messages(),
+                    KeyCode::Enter => self.send_msg(),
                     KeyCode::Char('a') if *self.mode.borrow() == Mode::NormalMode => {
                         self.switch_mode()
                     }
@@ -131,7 +154,7 @@ impl<'a> Client<'a> {
         }
     }
 
-    fn update_messages(&mut self) {
+    fn send_msg(&mut self) {
         let msg_string = self.input.get_message();
         if let Some(msg_str) = msg_string {
             let msg = Message::new(msg_str);
