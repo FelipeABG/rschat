@@ -63,7 +63,7 @@ impl<'a> Client<'a> {
 
         // thread responsible to handle incoming messages
         let msgs = Arc::clone(&self.messages);
-        std::thread::spawn(move || Self::handle_messages(msgs, stream.unwrap()));
+        std::thread::spawn(move || Self::incoming_messages(msgs, stream.unwrap()));
 
         // main client loop
         loop {
@@ -75,7 +75,7 @@ impl<'a> Client<'a> {
         }
     }
 
-    fn handle_messages(msgs: Arc<Mutex<Vec<Message>>>, mut stream: TcpStream) {
+    fn incoming_messages(msgs: Arc<Mutex<Vec<Message>>>, mut stream: TcpStream) {
         let mut buffer = [0; 1024];
         // read operations are blocking by default,
         // which causes the mutex to be blocked in this thread.
