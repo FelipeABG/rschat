@@ -1,7 +1,10 @@
+use crate::components::connecting::Connecting;
 use crate::components::help::Help;
 use crate::components::input::Input;
 use crate::components::message::Message;
 use crate::components::msgs_container::MsgContainer;
+use ratatui::crossterm::event::KeyModifiers;
+use ratatui::layout::Margin;
 use ratatui::prelude::Stylize;
 use ratatui::{
     Frame,
@@ -10,8 +13,10 @@ use ratatui::{
     text::Line,
 };
 use std::cell::RefCell;
+use std::net::TcpStream;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub type Result<T> = std::io::Result<T>;
 
@@ -41,6 +46,21 @@ impl<'a> Client<'a> {
     }
 
     pub fn run(&mut self, term: &mut ratatui::DefaultTerminal) -> Result<()> {
+        // server connection loop
+        let mut stream = TcpStream::connect("127.0.0.1:8080");
+        let mut conn_component = Connecting::new();
+        while let Err(_) = stream {
+            term.draw(|frame| frame.render_widget(&mut conn_component, frame.area()))?;
+            if self.handle_connecting_events()? {
+                return Ok(());
+            }
+            stream = TcpStream::connect("127.0.0.1:8080");
+            std::thread::sleep(Duration::from_millis(500));
+        }
+
+        drop(conn_component);
+
+        // main client loop
         loop {
             term.draw(|frame| self.draw(frame))?;
             if self.handle_events()? {
@@ -52,6 +72,7 @@ impl<'a> Client<'a> {
     fn draw(&mut self, frame: &mut Frame) {
         let title = Line::from(" Rschat Client ").cyan().centered();
 
+        let margin_frame = frame.area().inner(Margin::new(20, 3));
         let layout = Layout::new(
             ratatui::layout::Direction::Vertical,
             [
@@ -61,7 +82,7 @@ impl<'a> Client<'a> {
                 Constraint::Length(3),  // Input
             ],
         )
-        .split(frame.area());
+        .split(margin_frame);
 
         frame.render_widget(title, layout[0]);
         frame.render_widget(MsgContainer::new(Arc::clone(&self.messages)), layout[1]);
@@ -70,13 +91,33 @@ impl<'a> Client<'a> {
     }
 
     fn handle_events(&mut self) -> Result<bool> {
-        if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Esc => self.switch_mode(),
-                KeyCode::Enter => self.update_messages(),
-                KeyCode::Char('a') if *self.mode.borrow() == Mode::NormalMode => self.switch_mode(),
-                KeyCode::Char('q') if *self.mode.borrow() == Mode::NormalMode => return Ok(true),
-                _ => self.input.register_key(key),
+        if event::poll(Duration::ZERO)? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Esc => self.switch_mode(),
+                    KeyCode::Enter => self.update_messages(),
+                    KeyCode::Char('a') if *self.mode.borrow() == Mode::NormalMode => {
+                        self.switch_mode()
+                    }
+                    KeyCode::Char('q') if *self.mode.borrow() == Mode::NormalMode => {
+                        return Ok(true);
+                    }
+                    _ => self.input.register_key(key),
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn handle_connecting_events(&mut self) -> Result<bool> {
+        if event::poll(Duration::ZERO)? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        return Ok(true);
+                    }
+                    _ => {}
+                }
             }
         }
         Ok(false)

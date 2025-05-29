@@ -21,20 +21,20 @@ impl Widget for MsgContainer {
         if let Ok(lock) = self.messages.lock() {
             let block = Block::bordered().border_type(BorderType::Rounded);
 
-            let paragraphs: Vec<Paragraph> = lock
-                .iter()
-                .map(|msg| msg.as_line())
-                .map(|line| {
-                    Paragraph::new(line).block(Block::bordered().border_type(BorderType::Rounded))
-                })
-                .collect();
-            let constraints: Vec<Constraint> = (0..paragraphs.len())
-                .map(|_| Constraint::Percentage(7))
-                .collect();
-            let layout = Layout::new(Direction::Vertical, constraints).split(block.inner(area));
+            let msgs: Vec<Paragraph> = lock.iter().map(|msg| msg.as_paragraph()).collect();
 
-            for (idx, msg) in paragraphs.iter().enumerate() {
-                msg.render(layout[idx], buf);
+            let outer_layout = Layout::new(
+                Direction::Horizontal,
+                [Constraint::Percentage(50), Constraint::Percentage(50)],
+            )
+            .split(block.inner(area));
+
+            let constraints: Vec<Constraint> =
+                (0..msgs.len()).map(|_| Constraint::Length(3)).collect();
+            let inner_layout = Layout::new(Direction::Vertical, constraints).split(outer_layout[0]);
+
+            for (idx, msg) in msgs.iter().enumerate() {
+                msg.render(inner_layout[idx], buf);
             }
 
             block.render(area, buf);
