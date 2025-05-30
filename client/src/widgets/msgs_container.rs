@@ -34,6 +34,7 @@ impl<'a> Widget for MsgContainer<'a> {
         let constraints: Vec<Constraint> = (0..msgs.borrow().len())
             .map(|_| Constraint::Length(6))
             .collect();
+
         let inner_layout_left =
             Layout::new(Direction::Vertical, &constraints).split(outer_layout[0]);
 
