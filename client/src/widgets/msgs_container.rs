@@ -26,7 +26,7 @@ impl Widget for MsgContainer {
 
         let outer_layout = Layout::new(
             Direction::Horizontal,
-            [Constraint::Percentage(50), Constraint::Percentage(50)],
+            [Constraint::Percentage(45), Constraint::Percentage(45)],
         )
         .split(block.inner(area));
 

@@ -33,7 +33,7 @@ impl<'a> Widget for MessageWidget<'a> {
         .split(inner_area);
 
         block.render(outer_layout[0], buf);
-        Paragraph::new(Line::from(self.0.author.clone()).cyan().bold())
+        Paragraph::new(Line::from(self.0.author.clone()).cyan().bold().underlined())
             .render(inner_layout[0], buf);
         Paragraph::new(Line::from(self.0.body.clone())).render(inner_layout[1], buf);
         Paragraph::new(Line::from(fmt_date.cyan().bold()))
