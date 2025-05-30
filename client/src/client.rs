@@ -138,7 +138,8 @@ impl<'a> Client<'a> {
                     KeyCode::Char('q') if *self.mode.borrow() == Mode::NormalMode => {
                         return Ok(true);
                     }
-                    _ => self.input.register_key(key),
+                    _ if *self.mode.borrow() == Mode::InsertMode => self.input.register_key(key),
+                    _ => {}
                 }
             }
         }
