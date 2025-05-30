@@ -3,7 +3,6 @@ use crate::{
     event::{Message, ServerEvent},
     info,
 };
-use colored::Colorize;
 use std::{
     collections::HashMap,
     fmt::Display,

@@ -1,9 +1,6 @@
-use crate::components::connecting::Connecting;
 use crate::components::help::Help;
 use crate::components::input::Input;
-use crate::components::message::Message;
 use crate::components::msgs_container::MsgContainer;
-use ratatui::crossterm::event::KeyModifiers;
 use ratatui::layout::Margin;
 use ratatui::prelude::Stylize;
 use ratatui::{
@@ -12,23 +9,29 @@ use ratatui::{
     layout::{Constraint, Layout},
     text::Line,
 };
+use server::error;
+use server::event::Message;
+use server::server::Result;
 use std::cell::RefCell;
-use std::io::Read;
-use std::net::TcpStream;
+use std::fmt::Display;
+use std::io::{ErrorKind, Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::rc::Rc;
 use std::str::from_utf8;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
-pub type Result<T> = std::io::Result<T>;
+use std::sync::mpsc::{Sender, TryRecvError, channel};
+use std::time::{Duration, SystemTime};
 
 pub struct Client<'a> {
     // Input handler
     input: Input<'a>,
     // Input mode
     mode: Rc<RefCell<Mode>>,
+    // User name
+    user_name: String,
     // Users messages
-    messages: Arc<Mutex<Vec<Message>>>,
+    messages: Rc<RefCell<Vec<Message>>>,
+    // server socket
+    stream: TcpStream,
 }
 
 #[derive(PartialEq)]
@@ -38,57 +41,64 @@ pub enum Mode {
 }
 
 impl<'a> Client<'a> {
-    pub fn new() -> Self {
+    pub fn build<A: ToSocketAddrs + Display>(addr: A, user_name: String) -> Result<Self> {
         let mode = Rc::new(RefCell::new(Mode::InsertMode));
-        Self {
+        let stream = TcpStream::connect(&addr)
+            .map_err(|err| error!("Failed to connect to server {addr}: {err}"))?;
+        Ok(Self {
+            stream,
+            user_name,
             mode: Rc::clone(&mode),
             input: Input::new(Rc::clone(&mode)),
-            messages: Arc::new(Mutex::new(Vec::new())),
-        }
+            messages: Rc::new(RefCell::new(Vec::new())),
+        })
     }
 
     pub fn run(&mut self, term: &mut ratatui::DefaultTerminal) -> Result<()> {
-        // server connection loop
-        let mut stream = TcpStream::connect("127.0.0.1:8080");
-        let mut conn_component = Connecting::new();
-        while let Err(_) = stream {
-            term.draw(|frame| frame.render_widget(&mut conn_component, frame.area()))?;
-            if self.handle_connecting_events()? {
-                return Ok(());
-            }
-            stream = TcpStream::connect("127.0.0.1:8080");
-            std::thread::sleep(Duration::from_millis(500));
-        }
-        drop(conn_component);
-
         // thread responsible to handle incoming messages
-        let msgs = Arc::clone(&self.messages);
-        std::thread::spawn(move || Self::incoming_messages(msgs, stream.unwrap()));
+        let (sender, receiver) = channel();
+        let stream = self.stream.try_clone().unwrap();
+        std::thread::spawn(move || Self::incoming_messages(sender, stream));
 
         // main client loop
         loop {
-            term.draw(|frame| self.draw(frame))?;
+            term.draw(|frame| self.draw(frame))
+                .map_err(|err| error!("Failed to draw frame to terminal: {err}"))?;
             if self.handle_events()? {
                 break Ok(());
             }
-            std::thread::sleep(Duration::from_millis(16));
-        }
-    }
-
-    fn incoming_messages(msgs: Arc<Mutex<Vec<Message>>>, mut stream: TcpStream) {
-        let mut buffer = [0; 1024];
-        // read operations are blocking by default,
-        // which causes the mutex to be blocked in this thread.
-        stream.set_nonblocking(true).unwrap();
-        loop {
-            if let Ok(mut lock) = msgs.lock() {
-                if let Ok(n) = stream.read(&mut buffer) {
-                    if let Ok(msg_str) = from_utf8(&buffer[0..n]) {
-                        lock.push(Message::new(msg_str.to_string()));
+            match receiver.try_recv() {
+                Ok(msg) => self.messages.borrow_mut().push(msg),
+                Err(e) => {
+                    if let TryRecvError::Disconnected = e {
+                        break Ok(());
                     }
                 }
             }
-            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
+    fn incoming_messages(msgs: Sender<Message>, mut stream: TcpStream) {
+        let mut buffer = [0; 1024];
+        stream.set_nonblocking(true).unwrap();
+        loop {
+            match stream.read(&mut buffer) {
+                Ok(n) => {
+                    if n == 0 {
+                        break;
+                    }
+
+                    if let Ok(msg_str) = from_utf8(&buffer[0..n]) {
+                        if let Ok(msg) = serde_json::from_str(msg_str) {
+                            msgs.send(msg).unwrap();
+                        }
+                    }
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(_) => break,
+            }
         }
     }
 
@@ -108,17 +118,20 @@ impl<'a> Client<'a> {
         .split(margin_frame);
 
         frame.render_widget(title, layout[0]);
-        frame.render_widget(MsgContainer::new(Arc::clone(&self.messages)), layout[1]);
+        frame.render_widget(MsgContainer::new(Rc::clone(&self.messages)), layout[1]);
         frame.render_widget(Help::new(Rc::clone(&self.mode)), layout[2]);
         frame.render_widget(&mut self.input, layout[3]);
     }
 
     fn handle_events(&mut self) -> Result<bool> {
-        if event::poll(Duration::ZERO)? {
-            if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::ZERO).map_err(|err| error!("Failed to poll event: {err}"))? {
+            // server connection loop
+            if let Event::Key(key) =
+                event::read().map_err(|err| error!("Failed to read event from terminal: {err}"))?
+            {
                 match key.code {
                     KeyCode::Esc => self.switch_mode(),
-                    KeyCode::Enter => self.send_msg(),
+                    KeyCode::Enter => self.send_msg()?,
                     KeyCode::Char('a') if *self.mode.borrow() == Mode::NormalMode => {
                         self.switch_mode()
                     }
@@ -126,20 +139,6 @@ impl<'a> Client<'a> {
                         return Ok(true);
                     }
                     _ => self.input.register_key(key),
-                }
-            }
-        }
-        Ok(false)
-    }
-
-    fn handle_connecting_events(&mut self) -> Result<bool> {
-        if event::poll(Duration::ZERO)? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        return Ok(true);
-                    }
-                    _ => {}
                 }
             }
         }
@@ -154,14 +153,21 @@ impl<'a> Client<'a> {
         }
     }
 
-    fn send_msg(&mut self) {
-        let msg_string = self.input.get_message();
-        if let Some(msg_str) = msg_string {
-            let msg = Message::new(msg_str);
-            if let Ok(mut lock) = self.messages.lock() {
-                lock.push(msg);
-            }
+    fn send_msg(&mut self) -> Result<()> {
+        if let Some(msg) = self.input.get_message() {
+            let msg = Message::new(msg, SystemTime::now(), self.user_name.clone());
+            let encoded =
+                serde_json::to_string(&msg).map_err(|err| error!("Failed to encode msg: {err}"))?;
+            let mut stream = self
+                .stream
+                .try_clone()
+                .map_err(|err| error!("Failed to copy stream: {err}"))?;
+
+            stream
+                .write_all(&encoded.as_bytes().to_vec())
+                .map_err(|err| error!("Failed to write to socket: {err}"))?;
             self.input.clear_input();
         }
+        Ok(())
     }
 }

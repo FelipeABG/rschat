@@ -11,9 +11,9 @@ pub enum ServerEvent {
 
 #[derive(Serialize, Deserialize)]
 pub struct Message {
-    body: String,
-    date: SystemTime,
-    author: String,
+    pub body: String,
+    pub date: SystemTime,
+    pub author: String,
 }
 
 impl Message {

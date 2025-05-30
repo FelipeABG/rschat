@@ -2,20 +2,20 @@
 #[macro_export]
 macro_rules! error {
     ($($arg:tt)*) => {
-        eprintln!("{} {}", "ERROR:".red(), format!($($arg)*))
+        eprintln!("{} {}", ::colored::Colorize::red("ERROR:"), format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! info {
     ($($arg:tt)*) => {
-        eprintln!("{} {}", "INFO:".blue(), format!($($arg)*))
+        eprintln!("{} {}", ::colored::Colorize::blue("INFO:"), format!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {
-        eprintln!("{} {}", "DEBUG:".yellow(), format!($($arg)*))
+        eprintln!("{} {}", ::colored::Colorize::yellow("DEBUG:"), format!($($arg)*))
     };
 }

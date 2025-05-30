@@ -1,10 +1,5 @@
 use clap::Parser;
-use server::Result;
-use server::Server;
-
-pub mod event;
-mod macros;
-mod server;
+use server::server::{Result, Server};
 
 #[derive(clap::Parser)]
 #[command(version, about = "Real time multi-user chat backend", long_about = None)]
