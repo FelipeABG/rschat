@@ -3,7 +3,7 @@ use client::Client;
 use server::server::Result;
 
 mod client;
-mod components;
+mod widgets;
 
 #[derive(clap::Parser)]
 #[command(version, about = "Real time multi-user chat client", long_about = None)]

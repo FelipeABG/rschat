@@ -1,6 +1,6 @@
-use crate::components::help::Help;
-use crate::components::input::Input;
-use crate::components::msgs_container::MsgContainer;
+use crate::widgets::help::Help;
+use crate::widgets::input::Input;
+use crate::widgets::msgs_container::MsgContainer;
 use ratatui::layout::Margin;
 use ratatui::prelude::Stylize;
 use ratatui::{
