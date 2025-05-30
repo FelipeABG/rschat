@@ -12,12 +12,12 @@ pub struct MsgContainer<'a> {
 }
 
 impl<'a> MsgContainer<'a> {
-    pub fn new(messages: Rc<RefCell<Vec<Message>>>, user: &'a str) -> Self {
-        Self { messages, user }
+    pub fn new(messages: Rc<RefCell<Vec<Message>>>) -> Self {
+        Self { messages }
     }
 }
 
-impl<'a> Widget for MsgContainer<'a> {
+impl Widget for MsgContainer {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
         Self: Sized,
@@ -27,18 +27,14 @@ impl<'a> Widget for MsgContainer<'a> {
 
         let outer_layout = Layout::new(
             Direction::Horizontal,
-            [Constraint::Percentage(50), Constraint::Percentage(50)],
+            [Constraint::Percentage(45), Constraint::Percentage(45)],
         )
         .split(block.inner(area));
 
         let constraints: Vec<Constraint> = (0..msgs.borrow().len())
             .map(|_| Constraint::Length(6))
             .collect();
-        let inner_layout_left =
-            Layout::new(Direction::Vertical, &constraints).split(outer_layout[0]);
-
-        let inner_layout_right =
-            Layout::new(Direction::Vertical, &constraints).split(outer_layout[1]);
+        let inner_layout = Layout::new(Direction::Vertical, constraints).split(outer_layout[0]);
 
         for (idx, msg) in msgs
             .borrow()
@@ -46,11 +42,8 @@ impl<'a> Widget for MsgContainer<'a> {
             .map(|msg| MessageWidget(msg, &msg.author))
             .enumerate()
         {
-            if msg.1 == self.user {
-                msg.render(inner_layout_right[idx], buf);
-            } else {
-                msg.render(inner_layout_left[idx], buf);
-            }
+            if msg.1 == 
+            msg.render(inner_layout[idx], buf);
         }
 
         block.render(area, buf);

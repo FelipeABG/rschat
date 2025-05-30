@@ -105,7 +105,7 @@ impl<'a> Client<'a> {
     fn draw(&mut self, frame: &mut Frame) {
         let title = Line::from(" Rschat Client ").cyan().centered();
 
-        let margin_frame = frame.area().inner(Margin::new(20, 3));
+        let margin_frame = frame.area().inner(Margin::new(20, 1));
         let layout = Layout::new(
             ratatui::layout::Direction::Vertical,
             [
@@ -118,7 +118,10 @@ impl<'a> Client<'a> {
         .split(margin_frame);
 
         frame.render_widget(title, layout[0]);
-        frame.render_widget(MsgContainer::new(Rc::clone(&self.messages)), layout[1]);
+        frame.render_widget(
+            MsgContainer::new(Rc::clone(&self.messages), &self.user_name),
+            layout[1],
+        );
         frame.render_widget(Help::new(Rc::clone(&self.mode)), layout[2]);
         frame.render_widget(&mut self.input, layout[3]);
     }
