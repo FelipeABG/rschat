@@ -2,6 +2,7 @@ use clap::Parser;
 use server::Result;
 use server::Server;
 
+pub mod event;
 mod macros;
 mod server;
 

@@ -1,10 +1,15 @@
-use crate::{error, info};
+use crate::{
+    error,
+    event::{Message, ServerEvent},
+    info,
+};
 use colored::Colorize;
 use std::{
     collections::HashMap,
     fmt::Display,
     io::{Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
+    str::from_utf8,
     sync::{
         Arc,
         mpsc::{Receiver, Sender},
@@ -12,16 +17,10 @@ use std::{
 };
 
 pub type Result<T> = std::result::Result<T, ()>;
-type Connection = Arc<TcpStream>;
+pub type Connection = Arc<TcpStream>;
 
 pub struct Server {
     listener: TcpListener,
-}
-
-enum Message {
-    ClientConnected(Connection),
-    ClientDisconnected(Connection),
-    NewMessage { author: Connection, bytes: Vec<u8> },
 }
 
 impl Server {
@@ -78,31 +77,32 @@ impl Server {
     ///
     /// Handles new connections, disconnections, and broadcasting messages
     /// to all connected clients except the sender.
-    fn server(messages: Receiver<Message>) {
+    fn server(messages: Receiver<ServerEvent>) {
         let mut clients = HashMap::new();
 
         loop {
             match messages.recv() {
                 Ok(msg) => match msg {
-                    Message::ClientConnected(stream) => {
+                    ServerEvent::ClientConnected(stream) => {
                         let client_addr = stream.peer_addr().unwrap();
                         info!("Client connected: {client_addr}");
                         clients.insert(client_addr, Arc::clone(&stream));
                     }
-                    Message::ClientDisconnected(stream) => {
+                    ServerEvent::ClientDisconnected(stream) => {
                         let client_addr = stream.peer_addr().unwrap();
                         info!("Client disconnected: {client_addr}");
                         clients.remove(&client_addr);
                     }
-                    Message::NewMessage { author, bytes } => {
-                        let author_addr = author.peer_addr().unwrap();
-                        info!("Client {author_addr} sent: {} bytes", bytes.len());
+                    ServerEvent::NewMessage(conn, msg) => {
+                        let author_addr = conn.peer_addr().unwrap();
+                        let bytes_msg = serde_json::to_string(&msg).unwrap().as_bytes().to_vec();
+                        info!("Client {author_addr} sent: {} bytes", bytes_msg.len());
                         for (client, stream) in &clients {
-                            if *client != author_addr {
-                                let _ = stream.as_ref().write_all(&bytes).map_err(|err| {
-                                    error!("Failed to send message from {author_addr} to {client}: {err}");
-                                });
-                            }
+                            let _ = stream.as_ref().write_all(&bytes_msg).map_err(|err| {
+                                error!(
+                                    "Failed to send message from {author_addr} to {client}: {err}"
+                                );
+                            });
                         }
                     }
                 },
@@ -123,7 +123,7 @@ impl Server {
     /// # Returns
     /// - `Ok(())`: If the client disconnects normally.
     /// - `Err(())`: If an error occurs while reading or sending messages.
-    fn client(messages: Sender<Message>, stream: Connection) -> Result<()> {
+    fn client(messages: Sender<ServerEvent>, stream: Connection) -> Result<()> {
         let mut buffer = [0u8; 1024];
 
         let client_addr = stream
@@ -131,28 +131,40 @@ impl Server {
             .map_err(|err| error!("Failed to get client addres: {err}"))?;
 
         messages
-            .send(Message::ClientConnected(Arc::clone(&stream)))
+            .send(ServerEvent::ClientConnected(Arc::clone(&stream)))
             .map_err(|err| eprintln!("Failed to send message to server thread: {err}"))?;
 
         loop {
+            // Read the message from the stream
             let n = stream.as_ref().read(&mut buffer).map_err(|err| {
-                let _ = messages.send(Message::ClientDisconnected(Arc::clone(&stream)));
+                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
                 error!("Failed to read from client {client_addr}: {err}")
             })?;
 
+            // Kill the thread is the stream is closed
             if n == 0 {
-                let _ = messages.send(Message::ClientDisconnected(Arc::clone(&stream)));
+                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
                 break Ok(());
             }
 
+            // Convert message bytes to string
+            let msg_str = from_utf8(&buffer[0..n]).map_err(|err| {
+                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                error!("Failed to convert message to UTF8: {err}");
+            })?;
+
+            // Parses the message
+            let msg: Message = serde_json::from_str(msg_str).map_err(|err| {
+                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                error!("Failed to parse message: {err}");
+            })?;
+
+            // Sends the message
             messages
-                .send(Message::NewMessage {
-                    author: Arc::clone(&stream),
-                    bytes: buffer[0..n].to_vec(),
-                })
+                .send(ServerEvent::NewMessage(Arc::clone(&stream), msg))
                 .map_err(|err| {
-                    let _ = messages.send(Message::ClientDisconnected(Arc::clone(&stream)));
-                    eprintln!("Failed to send message to server thread: {err}")
+                    let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                    error!("Failed to send message to server thread: {err}")
                 })?
         }
     }
