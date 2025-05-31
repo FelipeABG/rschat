@@ -11,7 +11,12 @@ struct Cli {
     #[arg(long, short, help = "User identifier in the connection")]
     user: String,
 
-    #[arg(long, short, help = "Server address connect")]
+    #[arg(
+        long,
+        short,
+        help = "Network PORT used to connect to server", 
+        default_value_t = String::from("127.0.0.1:8080")
+    )]
     address: String,
 }
 
