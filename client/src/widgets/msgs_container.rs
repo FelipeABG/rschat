@@ -22,36 +22,28 @@ impl<'a> Widget for MsgContainer<'a> {
     where
         Self: Sized,
     {
-        let msgs = Rc::clone(&self.messages);
+        let msgs = self.messages.borrow();
         let block = Block::bordered().border_type(BorderType::Rounded);
+        let inner_area = block.inner(area);
 
-        let outer_layout = Layout::new(
+        let inner_layout = Layout::new(
             Direction::Horizontal,
             [Constraint::Percentage(50), Constraint::Percentage(50)],
         )
-        .split(block.inner(area));
+        .split(inner_area);
 
-        let constraints: Vec<Constraint> = (0..msgs.borrow().len())
-            .map(|_| Constraint::Length(6))
-            .collect();
+        let constraints = vec![Constraint::Length(6); 5];
+        let left_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[0]);
+        let right_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[1]);
 
-        let inner_layout_left =
-            Layout::new(Direction::Vertical, &constraints).split(outer_layout[0]);
-
-        let inner_layout_right =
-            Layout::new(Direction::Vertical, &constraints).split(outer_layout[1]);
-
-        for (idx, msg) in msgs
-            .borrow()
-            .iter()
-            .map(|msg| MessageWidget(msg, &msg.author))
-            .enumerate()
-        {
-            if msg.1 == self.user {
-                msg.render(inner_layout_right[idx], buf);
+        for (idx, msg) in msgs.iter().rev().take(5).rev().enumerate() {
+            let widget = MessageWidget(msg, &msg.author);
+            let area = if msg.author == self.user {
+                right_layout[idx]
             } else {
-                msg.render(inner_layout_left[idx], buf);
-            }
+                left_layout[idx]
+            };
+            widget.render(area, buf);
         }
 
         block.render(area, buf);
