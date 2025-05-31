@@ -7,7 +7,7 @@ use ratatui::{
 };
 use server::event::Message;
 
-pub struct MessageWidget<'a>(pub &'a Message, pub &'a str);
+pub struct MessageWidget<'a>(pub &'a Message);
 
 impl<'a> Widget for MessageWidget<'a> {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)

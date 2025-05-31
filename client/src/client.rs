@@ -12,11 +12,9 @@ use ratatui::{
 use server::error;
 use server::event::Message;
 use server::server::Result;
-use std::cell::RefCell;
 use std::fmt::Display;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::rc::Rc;
 use std::str::from_utf8;
 use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::time::{Duration, SystemTime};
@@ -25,16 +23,16 @@ pub struct Client<'a> {
     // Input handler
     input: Input<'a>,
     // Input mode
-    mode: Rc<RefCell<Mode>>,
+    mode: Mode,
     // User name
     user_name: String,
     // Users messages
-    messages: Rc<RefCell<Vec<Message>>>,
+    messages: Vec<Message>,
     // server socket
     stream: TcpStream,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum Mode {
     InsertMode,
     NormalMode,
@@ -42,15 +40,14 @@ pub enum Mode {
 
 impl<'a> Client<'a> {
     pub fn build<A: ToSocketAddrs + Display>(addr: A, user_name: String) -> Result<Self> {
-        let mode = Rc::new(RefCell::new(Mode::InsertMode));
         let stream = TcpStream::connect(&addr)
             .map_err(|err| error!("Failed to connect to server {addr}: {err}"))?;
         Ok(Self {
             stream,
             user_name,
-            mode: Rc::clone(&mode),
-            input: Input::new(Rc::clone(&mode)),
-            messages: Rc::new(RefCell::new(Vec::new())),
+            mode: Mode::InsertMode,
+            input: Input::new(Mode::InsertMode),
+            messages: Vec::new(),
         })
     }
 
@@ -68,7 +65,7 @@ impl<'a> Client<'a> {
                 break Ok(());
             }
             match receiver.try_recv() {
-                Ok(msg) => self.messages.borrow_mut().push(msg),
+                Ok(msg) => self.messages.push(msg),
                 Err(e) => {
                     if let TryRecvError::Disconnected = e {
                         break Ok(());
@@ -119,10 +116,10 @@ impl<'a> Client<'a> {
 
         frame.render_widget(title, layout[0]);
         frame.render_widget(
-            MsgContainer::new(Rc::clone(&self.messages), &self.user_name),
+            MsgContainer::new(&self.messages, &self.user_name),
             layout[1],
         );
-        frame.render_widget(Help::new(Rc::clone(&self.mode)), layout[2]);
+        frame.render_widget(Help::new(&self.mode), layout[2]);
         frame.render_widget(&mut self.input, layout[3]);
     }
 
@@ -135,13 +132,11 @@ impl<'a> Client<'a> {
                 match key.code {
                     KeyCode::Esc => self.switch_mode(),
                     KeyCode::Enter => self.send_msg()?,
-                    KeyCode::Char('a') if *self.mode.borrow() == Mode::NormalMode => {
-                        self.switch_mode()
-                    }
-                    KeyCode::Char('q') if *self.mode.borrow() == Mode::NormalMode => {
+                    KeyCode::Char('a') if self.mode == Mode::NormalMode => self.switch_mode(),
+                    KeyCode::Char('q') if self.mode == Mode::NormalMode => {
                         return Ok(true);
                     }
-                    _ if *self.mode.borrow() == Mode::InsertMode => self.input.register_key(key),
+                    _ if self.mode == Mode::InsertMode => self.input.register_key(key),
                     _ => {}
                 }
             }
@@ -149,11 +144,16 @@ impl<'a> Client<'a> {
         Ok(false)
     }
 
-    fn switch_mode(&self) {
-        let mut mode = self.mode.borrow_mut();
-        match *mode {
-            Mode::InsertMode => *mode = Mode::NormalMode,
-            Mode::NormalMode => *mode = Mode::InsertMode,
+    fn switch_mode(&mut self) {
+        match self.mode {
+            Mode::InsertMode => {
+                self.mode = Mode::NormalMode;
+                self.input.set_mode(Mode::NormalMode);
+            }
+            Mode::NormalMode => {
+                self.mode = Mode::InsertMode;
+                self.input.set_mode(Mode::InsertMode);
+            }
         }
     }
 

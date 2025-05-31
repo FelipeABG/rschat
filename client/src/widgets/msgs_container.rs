@@ -1,18 +1,16 @@
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::{Block, BorderType, Widget};
 use server::event::Message;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 use super::message::MessageWidget;
 
 pub struct MsgContainer<'a> {
-    messages: Rc<RefCell<Vec<Message>>>,
+    messages: &'a Vec<Message>,
     user: &'a str,
 }
 
 impl<'a> MsgContainer<'a> {
-    pub fn new(messages: Rc<RefCell<Vec<Message>>>, user: &'a str) -> Self {
+    pub fn new(messages: &'a Vec<Message>, user: &'a str) -> Self {
         Self { messages, user }
     }
 }
@@ -22,7 +20,6 @@ impl<'a> Widget for MsgContainer<'a> {
     where
         Self: Sized,
     {
-        let msgs = self.messages.borrow();
         let block = Block::bordered().border_type(BorderType::Rounded);
         let inner_area = block.inner(area);
 
@@ -36,8 +33,8 @@ impl<'a> Widget for MsgContainer<'a> {
         let left_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[0]);
         let right_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[1]);
 
-        for (idx, msg) in msgs.iter().rev().take(5).rev().enumerate() {
-            let widget = MessageWidget(msg, &msg.author);
+        for (idx, msg) in self.messages.iter().rev().take(5).rev().enumerate() {
+            let widget = MessageWidget(msg);
             let area = if msg.author == self.user {
                 right_layout[idx]
             } else {

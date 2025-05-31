@@ -5,16 +5,15 @@ use ratatui::{
     text::Line,
     widgets::{Block, BorderType, Widget},
 };
-use std::{cell::RefCell, rc::Rc};
 use tui_textarea::TextArea;
 
 pub struct Input<'a> {
-    mode: Rc<RefCell<Mode>>,
+    mode: Mode,
     handler: TextArea<'a>,
 }
 
 impl<'a> Input<'a> {
-    pub fn new(mode: Rc<RefCell<Mode>>) -> Self {
+    pub fn new(mode: Mode) -> Self {
         Self {
             mode,
             handler: TextArea::default(),
@@ -23,6 +22,10 @@ impl<'a> Input<'a> {
 
     pub fn register_key(&mut self, key: KeyEvent) {
         self.handler.input(key);
+    }
+
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
     }
 
     pub fn get_message(&self) -> Option<String> {
@@ -44,7 +47,7 @@ impl<'a> Widget for &mut Input<'a> {
     where
         Self: Sized,
     {
-        let mode = match *self.mode.borrow() {
+        let mode = match self.mode {
             Mode::InsertMode => Line::from(" INSERT ").light_green(),
             Mode::NormalMode => Line::from(" NORMAL ").light_blue(),
         };

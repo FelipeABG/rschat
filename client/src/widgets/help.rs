@@ -1,25 +1,23 @@
 use crate::client::Mode;
 use ratatui::prelude::Stylize;
 use ratatui::{text::Line, widgets::Widget};
-use std::cell::RefCell;
-use std::rc::Rc;
 
-pub struct Help {
-    mode: Rc<RefCell<Mode>>,
+pub struct Help<'a> {
+    mode: &'a Mode,
 }
 
-impl Help {
-    pub fn new(mode: Rc<RefCell<Mode>>) -> Self {
+impl<'a> Help<'a> {
+    pub fn new(mode: &'a Mode) -> Self {
         Self { mode }
     }
 }
 
-impl Widget for Help {
+impl<'a> Widget for Help<'a> {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
         Self: Sized,
     {
-        let line = match *self.mode.borrow() {
+        let line = match *self.mode {
             Mode::NormalMode => Line::from(vec![
                 "Press ".into(),
                 "q".bold().cyan(),
