@@ -2,17 +2,17 @@ use crate::client::Mode;
 use ratatui::prelude::Stylize;
 use ratatui::{text::Line, widgets::Widget};
 
-pub struct Help<'a> {
+pub struct HelpWidget<'a> {
     mode: &'a Mode,
 }
 
-impl<'a> Help<'a> {
+impl<'a> HelpWidget<'a> {
     pub fn new(mode: &'a Mode) -> Self {
         Self { mode }
     }
 }
 
-impl<'a> Widget for Help<'a> {
+impl<'a> Widget for HelpWidget<'a> {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
         Self: Sized,

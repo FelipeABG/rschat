@@ -1,5 +1,5 @@
-use crate::widgets::help::Help;
-use crate::widgets::input::Input;
+use crate::widgets::help::HelpWidget;
+use crate::widgets::input::InputWidget;
 use crate::widgets::msgs_container::MsgContainer;
 use ratatui::layout::Margin;
 use ratatui::prelude::Stylize;
@@ -20,9 +20,9 @@ use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::time::{Duration, SystemTime};
 
 pub struct Client<'a> {
-    // Input handler
-    input: Input<'a>,
-    // Input mode
+    // InputWidget handler
+    input: InputWidget<'a>,
+    // InputWidget mode
     mode: Mode,
     // User name
     user_name: String,
@@ -46,7 +46,7 @@ impl<'a> Client<'a> {
             stream,
             user_name,
             mode: Mode::InsertMode,
-            input: Input::new(Mode::InsertMode),
+            input: InputWidget::new(Mode::InsertMode),
             messages: Vec::new(),
         })
     }
@@ -109,7 +109,7 @@ impl<'a> Client<'a> {
                 Constraint::Length(1),  // Title
                 Constraint::Length(95), // Messages container
                 Constraint::Length(1),  // Info
-                Constraint::Length(3),  // Input
+                Constraint::Length(3),  // InputWidget
             ],
         )
         .split(margin_frame);
@@ -119,7 +119,7 @@ impl<'a> Client<'a> {
             MsgContainer::new(&self.messages, &self.user_name),
             layout[1],
         );
-        frame.render_widget(Help::new(&self.mode), layout[2]);
+        frame.render_widget(HelpWidget::new(&self.mode), layout[2]);
         frame.render_widget(&mut self.input, layout[3]);
     }
 

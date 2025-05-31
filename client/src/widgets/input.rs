@@ -7,12 +7,12 @@ use ratatui::{
 };
 use tui_textarea::TextArea;
 
-pub struct Input<'a> {
+pub struct InputWidget<'a> {
     mode: Mode,
     handler: TextArea<'a>,
 }
 
-impl<'a> Input<'a> {
+impl<'a> InputWidget<'a> {
     pub fn new(mode: Mode) -> Self {
         Self {
             mode,
@@ -42,7 +42,7 @@ impl<'a> Input<'a> {
     }
 }
 
-impl<'a> Widget for &mut Input<'a> {
+impl<'a> Widget for &mut InputWidget<'a> {
     fn render(self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer)
     where
         Self: Sized,
