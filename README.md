@@ -2,7 +2,9 @@
 
 <p align="center">Real time multi-user chat backend and frontend (TUI) written in rust.</p>
 
-<p align="center"></p>
+<p align="center">
+    <img src="./resources/chat.png">
+</p>
 
 ## Overview
 
