@@ -52,22 +52,13 @@ impl<'a> Widget for MessageWidget<'a> {
 
         block.render(outer_layout[0], buf);
         Paragraph::new(
-            Line::from(self.author.clone()).style(
-                Style::new()
-                    .bg(self.color)
-                    .fg(self.color)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Line::from(self.author.clone())
+                .style(Style::new().fg(self.color).add_modifier(Modifier::BOLD)),
         )
         .render(inner_layout[0], buf);
         Paragraph::new(Line::from(self.content.clone())).render(inner_layout[1], buf);
         Paragraph::new(
-            Line::from(fmt_date).style(
-                Style::new()
-                    .bg(self.color)
-                    .fg(self.color)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Line::from(fmt_date).style(Style::new().fg(self.color).add_modifier(Modifier::BOLD)),
         )
         .right_aligned()
         .render(outer_layout[1], buf);
