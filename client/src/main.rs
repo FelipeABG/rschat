@@ -3,6 +3,7 @@ use client::Client;
 use server::server::Result;
 
 mod client;
+mod session;
 mod widgets;
 
 #[derive(clap::Parser)]

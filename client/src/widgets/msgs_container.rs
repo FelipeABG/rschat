@@ -1,17 +1,15 @@
+use super::message::MessageWidget;
+use crate::session::Session;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::{Block, BorderType, Widget};
-use server::event::Message;
-
-use super::message::MessageWidget;
 
 pub struct MsgContainer<'a> {
-    messages: &'a Vec<Message>,
-    user: &'a str,
+    session: &'a Session,
 }
 
 impl<'a> MsgContainer<'a> {
-    pub fn new(messages: &'a Vec<Message>, user: &'a str) -> Self {
-        Self { messages, user }
+    pub fn new(session: &'a Session) -> Self {
+        Self { session }
     }
 }
 
@@ -33,9 +31,10 @@ impl<'a> Widget for MsgContainer<'a> {
         let left_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[0]);
         let right_layout = Layout::new(Direction::Vertical, &constraints).split(inner_layout[1]);
 
-        for (idx, msg) in self.messages.iter().rev().take(5).rev().enumerate() {
-            let widget = MessageWidget(msg);
-            let area = if msg.author == self.user {
+        for (idx, msg) in self.session.last_n_msgs(5) {
+            let widget =
+                MessageWidget::from_msg_with_color(msg, self.session.get_user_color(&msg.author));
+            let area = if msg.author == *self.session.user() {
                 right_layout[idx]
             } else {
                 left_layout[idx]

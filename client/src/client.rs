@@ -1,3 +1,4 @@
+use crate::session::Session;
 use crate::widgets::help::HelpWidget;
 use crate::widgets::input::InputWidget;
 use crate::widgets::msgs_container::MsgContainer;
@@ -22,14 +23,10 @@ use std::time::{Duration, SystemTime};
 pub struct Client<'a> {
     // InputWidget handler
     input: InputWidget<'a>,
-    // InputWidget mode
+    // client mode
     mode: Mode,
     // User name
-    user_name: String,
-    // Users messages
-    messages: Vec<Message>,
-    // server socket
-    stream: TcpStream,
+    session: Session,
 }
 
 #[derive(PartialEq, Clone)]
@@ -43,18 +40,16 @@ impl<'a> Client<'a> {
         let stream = TcpStream::connect(&addr)
             .map_err(|err| error!("Failed to connect to server {addr}: {err}"))?;
         Ok(Self {
-            stream,
-            user_name,
             mode: Mode::InsertMode,
             input: InputWidget::new(Mode::InsertMode),
-            messages: Vec::new(),
+            session: Session::new(stream, user_name),
         })
     }
 
     pub fn run(&mut self, term: &mut ratatui::DefaultTerminal) -> Result<()> {
         // thread responsible to handle incoming messages
         let (sender, receiver) = channel();
-        let stream = self.stream.try_clone().unwrap();
+        let stream = self.session.clone_stream()?;
         std::thread::spawn(move || Self::incoming_messages(sender, stream));
 
         // main client loop
@@ -65,7 +60,10 @@ impl<'a> Client<'a> {
                 break Ok(());
             }
             match receiver.try_recv() {
-                Ok(msg) => self.messages.push(msg),
+                Ok(msg) => {
+                    self.session.assign_user_color(msg.author.clone());
+                    self.session.new_message(msg);
+                }
                 Err(e) => {
                     if let TryRecvError::Disconnected = e {
                         break Ok(());
@@ -115,10 +113,7 @@ impl<'a> Client<'a> {
         .split(margin_frame);
 
         frame.render_widget(title, layout[0]);
-        frame.render_widget(
-            MsgContainer::new(&self.messages, &self.user_name),
-            layout[1],
-        );
+        frame.render_widget(MsgContainer::new(&self.session), layout[1]);
         frame.render_widget(HelpWidget::new(&self.mode), layout[2]);
         frame.render_widget(&mut self.input, layout[3]);
     }
@@ -159,13 +154,10 @@ impl<'a> Client<'a> {
 
     fn send_msg(&mut self) -> Result<()> {
         if let Some(msg) = self.input.get_message() {
-            let msg = Message::new(msg, SystemTime::now(), self.user_name.clone());
+            let msg = Message::new(msg, SystemTime::now(), self.session.user().clone());
             let encoded =
                 serde_json::to_string(&msg).map_err(|err| error!("Failed to encode msg: {err}"))?;
-            let mut stream = self
-                .stream
-                .try_clone()
-                .map_err(|err| error!("Failed to copy stream: {err}"))?;
+            let mut stream = self.session.clone_stream()?;
 
             stream
                 .write_all(&encoded.as_bytes().to_vec())
