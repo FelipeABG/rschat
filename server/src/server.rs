@@ -1,19 +1,8 @@
-use crate::{
-    error,
-    event::{Message, ServerEvent},
-    info,
-};
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    io::{Read, Write},
-    net::{TcpListener, TcpStream, ToSocketAddrs},
-    str::from_utf8,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender},
-    },
-};
+use crate::{error, event::ServerEvent, info};
+use std::{collections::HashMap, fmt::Display, io::ErrorKind, str::from_utf8, sync::Arc};
+use tokio::net::ToSocketAddrs;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 pub type Result<T> = std::result::Result<T, ()>;
 pub type Connection = Arc<TcpStream>;
@@ -32,8 +21,9 @@ impl Server {
     /// # Returns
     /// - `Ok(Server)`: If the listener successfully binds to the address.
     /// - `Err(())`: If the bind is unsuccessful, with a message logged.
-    pub fn build<A: ToSocketAddrs + Display>(addr: A) -> Result<Self> {
+    pub async fn build<A: ToSocketAddrs + Display>(addr: A) -> Result<Self> {
         TcpListener::bind(&addr)
+            .await
             .map(|listener| Self { listener })
             .map_err(|err| error!("Could not bind server to {addr}: {err}"))
     }
@@ -44,10 +34,10 @@ impl Server {
     /// # Returns
     /// - `Ok(())`: If the server runs without fatal errors.
     /// - `Err(())`: If an error occurs during initialization or runtime.
-    pub fn run(&mut self) -> Result<()> {
-        let (sender, receiver) = std::sync::mpsc::channel();
+    pub async fn run(&mut self) -> Result<()> {
+        let (sender, receiver) = tokio::sync::mpsc::channel(100);
 
-        std::thread::spawn(|| Self::server(receiver));
+        tokio::spawn(Self::server(receiver));
 
         let port = self
             .listener
@@ -55,18 +45,16 @@ impl Server {
             .map_err(|err| error!("Failed to get listener address: {err}"))?;
 
         info!("Listening to connections on port {port}");
-        for stream in self.listener.incoming() {
-            match stream {
-                Ok(stream) => {
+        loop {
+            match self.listener.accept().await {
+                Ok((stream, _)) => {
                     let sender = sender.clone();
                     let stream = Arc::new(stream);
-                    std::thread::spawn(|| Self::client(sender, stream));
+                    tokio::spawn(Self::client(sender, stream));
                 }
                 Err(err) => error!("Failed to connect to client: {err}"),
             }
         }
-
-        Ok(())
     }
 
     /// Main server loop that processes messages from connected clients.
@@ -76,36 +64,40 @@ impl Server {
     ///
     /// Handles new connections, disconnections, and broadcasting messages
     /// to all connected clients except the sender.
-    fn server(messages: Receiver<ServerEvent>) {
+    async fn server(mut messages: Receiver<ServerEvent>) {
         let mut clients = HashMap::new();
 
         loop {
-            match messages.recv() {
-                Ok(msg) => match msg {
-                    ServerEvent::ClientConnected(stream) => {
-                        let client_addr = stream.peer_addr().unwrap();
-                        info!("Client connected: {client_addr}");
-                        clients.insert(client_addr, Arc::clone(&stream));
-                    }
-                    ServerEvent::ClientDisconnected(stream) => {
-                        let client_addr = stream.peer_addr().unwrap();
-                        info!("Client disconnected: {client_addr}");
-                        clients.remove(&client_addr);
-                    }
-                    ServerEvent::NewMessage(conn, msg) => {
-                        let author_addr = conn.peer_addr().unwrap();
-                        let bytes_msg = serde_json::to_string(&msg).unwrap().as_bytes().to_vec();
-                        info!("Client {author_addr} sent: {} bytes", bytes_msg.len());
-                        for (client, stream) in &clients {
-                            let _ = stream.as_ref().write_all(&bytes_msg).map_err(|err| {
-                                error!(
-                                    "Failed to send message from {author_addr} to {client}: {err}"
-                                );
-                            });
+            match messages.recv().await {
+                Some(msg) => {
+                    match msg {
+                        ServerEvent::ClientConnected(stream) => {
+                            let client_addr = stream.peer_addr().unwrap();
+                            info!("Client connected: {client_addr}");
+                            clients.insert(client_addr, Arc::clone(&stream));
+                        }
+                        ServerEvent::ClientDisconnected(stream) => {
+                            let client_addr = stream.peer_addr().unwrap();
+                            info!("Client disconnected: {client_addr}");
+                            clients.remove(&client_addr);
+                        }
+                        ServerEvent::NewMessage(conn, msg) => {
+                            let author_addr = conn.peer_addr().unwrap();
+                            let bytes_msg =
+                                serde_json::to_string(&msg).unwrap().as_bytes().to_vec();
+                            info!("Client {author_addr} sent: {} bytes", bytes_msg.len());
+                            for (client, stream) in &clients {
+                                let _ = stream.writable().await.map_err(|err| {
+                                    error!("Failed waiting for socket to become available: {err}")
+                                });
+
+                                let _ = stream.try_write(&bytes_msg).map_err(|err| {
+                                    error!("Failed to send message from {author_addr} to {client}: {err}")});
+                            }
                         }
                     }
-                },
-                Err(err) => eprintln!("Failed to receive message from client: {err}"),
+                }
+                None => eprintln!("The server channel has been closed"),
             }
         }
     }
@@ -122,7 +114,7 @@ impl Server {
     /// # Returns
     /// - `Ok(())`: If the client disconnects normally.
     /// - `Err(())`: If an error occurs while reading or sending messages.
-    fn client(messages: Sender<ServerEvent>, stream: Connection) -> Result<()> {
+    async fn client(messages: Sender<ServerEvent>, stream: Connection) -> Result<()> {
         let mut buffer = [0u8; 1024];
 
         let client_addr = stream
@@ -131,40 +123,62 @@ impl Server {
 
         messages
             .send(ServerEvent::ClientConnected(Arc::clone(&stream)))
+            .await
             .map_err(|err| eprintln!("Failed to send message to server thread: {err}"))?;
 
         loop {
-            // Read the message from the stream
-            let n = stream.as_ref().read(&mut buffer).map_err(|err| {
+            if let Err(err) = stream.readable().await {
                 let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
-                error!("Failed to read from client {client_addr}: {err}")
-            })?;
-
-            // Kill the thread is the stream is closed
-            if n == 0 {
-                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                error!("Failed waiting for socket to become readable {client_addr}: {err}");
                 break Ok(());
             }
 
-            // Convert message bytes to string
-            let msg_str = from_utf8(&buffer[0..n]).map_err(|err| {
-                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
-                error!("Failed to convert message to UTF8: {err}");
-            })?;
-
-            // Parses the message
-            let msg: Message = serde_json::from_str(msg_str).map_err(|err| {
-                let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
-                error!("Failed to parse message: {err}");
-            })?;
-
-            // Sends the message
-            messages
-                .send(ServerEvent::NewMessage(Arc::clone(&stream), msg))
-                .map_err(|err| {
+            match stream.as_ref().try_read(&mut buffer) {
+                Ok(0) => {
+                    // Connection closed
                     let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
-                    error!("Failed to send message to server thread: {err}")
-                })?
+                    break Ok(());
+                }
+                Ok(n) => {
+                    let msg_str = match from_utf8(&buffer[0..n]) {
+                        Ok(s) => s,
+                        Err(err) => {
+                            let _ =
+                                messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                            error!("Failed to convert message to UTF8: {err}");
+                            break Ok(());
+                        }
+                    };
+
+                    let msg = match serde_json::from_str(msg_str) {
+                        Ok(m) => m,
+                        Err(err) => {
+                            let _ =
+                                messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                            error!("Failed to parse message: {err}");
+                            break Ok(());
+                        }
+                    };
+
+                    if let Err(err) = messages
+                        .send(ServerEvent::NewMessage(Arc::clone(&stream), msg))
+                        .await
+                    {
+                        let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                        error!("Failed to send message to server thread: {err}");
+                        break Ok(());
+                    }
+                }
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    // Tries to read from socket again
+                    continue;
+                }
+                Err(err) => {
+                    let _ = messages.send(ServerEvent::ClientDisconnected(Arc::clone(&stream)));
+                    error!("Failed to read from client {client_addr}: {err}");
+                    break Ok(());
+                }
+            }
         }
     }
 }

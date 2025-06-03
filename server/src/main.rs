@@ -13,9 +13,10 @@ struct Cli {
     address: String,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let mut server = Server::build(cli.address)?;
-    server.run()?;
+    let mut server = Server::build(cli.address).await?;
+    server.run().await?;
     Ok(())
 }
